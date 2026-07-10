@@ -1,0 +1,154 @@
+{
+  "categories": [
+    {
+      "name": "Movie Moments",
+      "questions": [
+        {
+          "value": 100,
+          "question": "In many films, what word describes the short preview shown before a movie is released?",
+          "answer": "Trailer"
+        },
+        {
+          "value": 200,
+          "question": "What animated movie features a young lion named Simba?",
+          "answer": "The Lion King"
+        },
+        {
+          "value": 300,
+          "question": "Which device is used by movie directors to mark scenes and takes at the start of filming?",
+          "answer": "A clapperboard"
+        },
+        {
+          "value": 400,
+          "question": "What term means a movie made after another movie in the same story world?",
+          "answer": "A sequel"
+        },
+        {
+          "value": 500,
+          "question": "Which award ceremony is famous for handing out gold statuettes called Oscars?",
+          "answer": "The Academy Awards"
+        }
+      ]
+    },
+    {
+      "name": "Kitchen Table",
+      "questions": [
+        {
+          "value": 100,
+          "question": "What fruit is traditionally used in guacamole?",
+          "answer": "Avocado"
+        },
+        {
+          "value": 200,
+          "question": "What kitchen tool is commonly used to drain pasta?",
+          "answer": "A colander"
+        },
+        {
+          "value": 300,
+          "question": "What is the main ingredient in hummus?",
+          "answer": "Chickpeas"
+        },
+        {
+          "value": 400,
+          "question": "Which spice is often associated with a bright yellow color in curry dishes?",
+          "answer": "Turmeric"
+        },
+        {
+          "value": 500,
+          "question": "What French phrase means ingredients are prepared and arranged before cooking begins?",
+          "answer": "Mise en place"
+        }
+      ]
+    },
+    {
+      "name": "Around the World",
+      "questions": [
+        {
+          "value": 100,
+          "question": "Which country is home to the Eiffel Tower?",
+          "answer": "France"
+        },
+        {
+          "value": 200,
+          "question": "What is the largest ocean on Earth?",
+          "answer": "The Pacific Ocean"
+        },
+        {
+          "value": 300,
+          "question": "Which continent has the most countries?",
+          "answer": "Africa"
+        },
+        {
+          "value": 400,
+          "question": "What city is known as the Big Apple?",
+          "answer": "New York City"
+        },
+        {
+          "value": 500,
+          "question": "Which imaginary line divides Earth into Northern and Southern Hemispheres?",
+          "answer": "The Equator"
+        }
+      ]
+    },
+    {
+      "name": "Science Sparks",
+      "questions": [
+        {
+          "value": 100,
+          "question": "What gas do humans need to breathe to survive?",
+          "answer": "Oxygen"
+        },
+        {
+          "value": 200,
+          "question": "What force keeps us on the ground?",
+          "answer": "Gravity"
+        },
+        {
+          "value": 300,
+          "question": "What part of a plant absorbs water from the soil?",
+          "answer": "Roots"
+        },
+        {
+          "value": 400,
+          "question": "What planet is known for its prominent rings?",
+          "answer": "Saturn"
+        },
+        {
+          "value": 500,
+          "question": "What is H2O more commonly known as?",
+          "answer": "Water"
+        }
+      ]
+    },
+    {
+      "name": "Music Mix",
+      "questions": [
+        {
+          "value": 100,
+          "question": "How many strings does a standard violin have?",
+          "answer": "Four"
+        },
+        {
+          "value": 200,
+          "question": "What instrument has black and white keys and pedals?",
+          "answer": "Piano"
+        },
+        {
+          "value": 300,
+          "question": "What is the person who leads an orchestra called?",
+          "answer": "A conductor"
+        },
+        {
+          "value": 400,
+          "question": "What term describes the speed of a piece of music?",
+          "answer": "Tempo"
+        },
+        {
+          "value": 500,
+          "question": "What musical interval spans eight notes?",
+          "answer": "An octave"
+        }
+      ]
+    }
+  ]
+}
