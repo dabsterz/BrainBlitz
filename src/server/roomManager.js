@@ -9,6 +9,9 @@ import { rankPlayers, scoreDeltaForAnswer } from "../utils/scoring.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_PATH = path.resolve(__dirname, "../data/sampleQuestions.json");
+const MAX_PLAYER_NAME_LENGTH = 24;
+const DEFAULT_ROOM_TTL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_EMPTY_ROOM_TTL_MS = 30 * 60 * 1000;
 
 function loadBoard() {
   const data = JSON.parse(fs.readFileSync(DATA_PATH, "utf8"));
@@ -62,7 +65,9 @@ function sanitizeCurrentQuestion(question, role) {
     value: question.value,
     question: question.question,
     answer: role === "host" || question.answerRevealed ? question.answer : null,
-    answerRevealed: question.answerRevealed
+    answerRevealed: question.answerRevealed,
+    scored: Boolean(question.scored),
+    attempted: Boolean(question.attempted)
   };
 }
 
@@ -83,6 +88,8 @@ function makeRoom(roomCode, hostSocketId) {
     currentBuzzer: null,
     buzzHistory: [],
     disqualifiedPlayerIds: new Set(),
+    eligiblePlayerIds: new Set(),
+    attemptedQuestions: new Set(),
     recentScoreChanges: [],
     settings: {
       maxPlayers: APP_CONFIG.maxPlayers,
@@ -94,10 +101,12 @@ function makeRoom(roomCode, hostSocketId) {
 }
 
 export class RoomManager {
-  constructor() {
+  constructor({ roomTtlMs = DEFAULT_ROOM_TTL_MS, emptyRoomTtlMs = DEFAULT_EMPTY_ROOM_TTL_MS } = {}) {
     this.rooms = new Map();
     this.socketRooms = new Map();
     this.buzzRate = new Map();
+    this.roomTtlMs = roomTtlMs;
+    this.emptyRoomTtlMs = emptyRoomTtlMs;
   }
 
   createRoom(hostSocketId) {
@@ -124,32 +133,45 @@ export class RoomManager {
     return { ok: true, room };
   }
 
+  bindDisplay(socketId, roomCode) {
+    const room = this.getRoom(roomCode);
+    if (!room) return { ok: false, error: "Room not found." };
+
+    this.socketRooms.set(socketId, { roomCode: room.roomCode, role: "display" });
+    return { ok: true, room };
+  }
+
   isHost(socketId, roomCode) {
     const room = this.getRoom(roomCode);
     return Boolean(room && room.host.socketId === socketId);
   }
 
-  joinRoom({ socketId, roomCode, name, avatar, previousPlayerId }) {
+  joinRoom({ socketId, roomCode, name, avatar, previousPlayerId, playerToken }) {
     const room = this.getRoom(roomCode);
     if (!room) return { ok: false, error: "That room code does not exist." };
-    if (!room.allowJoining || room.gameStatus === "finished") return { ok: false, error: "This game is not accepting players." };
 
     const cleanName = sanitizePlayerName(name);
     if (!cleanName) return { ok: false, error: "Enter a display name." };
 
-    if (previousPlayerId && room.players.has(previousPlayerId)) {
+    if (previousPlayerId) {
+      if (!room.players.has(previousPlayerId)) return { ok: false, error: "That player session is no longer in this room. Join again." };
       const player = room.players.get(previousPlayerId);
+      if (!playerToken || player.token !== playerToken) return { ok: false, error: "Could not verify that player session. Join again." };
+      if (player.socketId && player.socketId !== socketId) this.socketRooms.delete(player.socketId);
       player.socketId = socketId;
       player.connected = true;
       player.lastSeen = now();
+      room.updatedAt = now();
       this.socketRooms.set(socketId, { roomCode: room.roomCode, role: "player", playerId: player.id });
       return { ok: true, room, player, reconnected: true };
     }
 
+    if (!room.allowJoining || room.gameStatus === "finished") return { ok: false, error: "This game is not accepting players." };
     if (room.players.size >= room.settings.maxPlayers) return { ok: false, error: "This room is full." };
 
     const player = {
       id: crypto.randomUUID(),
+      token: crypto.randomUUID(),
       socketId,
       name: this.uniquePlayerName(room, cleanName),
       avatar: sanitizeAvatar(avatar),
@@ -171,14 +193,24 @@ export class RoomManager {
     if (!names.has(requestedName.toLowerCase())) return requestedName;
 
     let suffix = 2;
-    while (names.has(`${requestedName} ${suffix}`.toLowerCase())) {
+    let candidate = this.nameWithSuffix(requestedName, suffix);
+    while (names.has(candidate.toLowerCase())) {
       suffix += 1;
+      candidate = this.nameWithSuffix(requestedName, suffix);
     }
-    return `${requestedName} ${suffix}`;
+    return candidate;
+  }
+
+  nameWithSuffix(requestedName, suffix) {
+    const suffixText = ` ${suffix}`;
+    const maxBaseLength = Math.max(1, MAX_PLAYER_NAME_LENGTH - suffixText.length);
+    return `${requestedName.slice(0, maxBaseLength).trimEnd()}${suffixText}`;
   }
 
   startGame(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
+    if (!room.players.size) throw new Error("Add at least one player before starting.");
     room.gameStatus = "in_progress";
     room.updatedAt = now();
     return room;
@@ -186,6 +218,7 @@ export class RoomManager {
 
   selectQuestion(socketId, roomCode, categoryIndex, questionIndex) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (!["in_progress", "answer_review"].includes(room.gameStatus)) throw new Error("Questions can only be selected from the board.");
 
     const key = `${categoryIndex}-${questionIndex}`;
@@ -203,11 +236,14 @@ export class RoomManager {
       value: selected.value,
       question: selected.question,
       answer: selected.answer,
-      answerRevealed: false
+      answerRevealed: false,
+      scored: false,
+      attempted: room.attemptedQuestions.has(key)
     };
     room.currentBuzzer = null;
     room.buzzHistory = [];
     room.disqualifiedPlayerIds = new Set();
+    room.eligiblePlayerIds = new Set(room.players.keys());
     room.players.forEach((player) => {
       player.answerStatus = null;
     });
@@ -218,8 +254,12 @@ export class RoomManager {
 
   openBuzzing(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (!room.currentQuestion) throw new Error("Select a question first.");
+    if (room.currentQuestion.answerRevealed) throw new Error("Buzzing cannot be opened after the answer is revealed.");
+    if (room.currentQuestion.scored) throw new Error("This question has already been scored.");
     if (room.currentBuzzer) throw new Error("A player already buzzed in.");
+    if (!this.hasEligibleBuzzers(room)) throw new Error("No eligible players can buzz on this question.");
     room.gameStatus = "buzzing_open";
     room.updatedAt = now();
     return room;
@@ -227,6 +267,7 @@ export class RoomManager {
 
   closeBuzzing(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (room.gameStatus === "buzzing_open") room.gameStatus = "question_active";
     room.updatedAt = now();
     return room;
@@ -238,7 +279,10 @@ export class RoomManager {
 
     const player = room.players.get(playerId);
     if (!player || player.socketId !== socketId) return { ok: false, error: "Player not found in this room." };
+    if (room.gameStatus === "finished") return { ok: false, error: "This game has ended." };
     if (room.gameStatus !== "buzzing_open") return { ok: false, error: "Buzzing is closed." };
+    if (!room.currentQuestion || room.currentQuestion.answerRevealed) return { ok: false, error: "Buzzing is closed." };
+    if (!room.eligiblePlayerIds.has(player.id)) return { ok: false, error: "You joined after this question started." };
     if (room.disqualifiedPlayerIds.has(player.id)) return { ok: false, error: "You cannot buzz again on this question." };
     if (room.buzzHistory.some((buzz) => buzz.playerId === player.id)) return { ok: false, error: "You already buzzed." };
     if (!this.allowBuzzFromPlayer(player.id)) return { ok: false, error: "Slow down before buzzing again." };
@@ -268,7 +312,9 @@ export class RoomManager {
 
   markAnswer(socketId, roomCode, { isCorrect }) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (!room.currentQuestion || !room.currentBuzzer) throw new Error("No buzzer is ready for scoring.");
+    if (room.currentQuestion.scored) throw new Error("This question has already been scored.");
 
     const player = room.players.get(room.currentBuzzer.playerId);
     if (!player) throw new Error("The buzzing player is no longer in the room.");
@@ -280,6 +326,8 @@ export class RoomManager {
     });
     player.score += delta;
     player.answerStatus = isCorrect ? "correct" : "incorrect";
+    room.attemptedQuestions.add(`${room.currentQuestion.categoryIndex}-${room.currentQuestion.questionIndex}`);
+    room.currentQuestion.attempted = true;
 
     if (!isCorrect) {
       room.disqualifiedPlayerIds.add(player.id);
@@ -287,6 +335,7 @@ export class RoomManager {
       room.gameStatus = "question_active";
     } else {
       room.usedQuestions.add(`${room.currentQuestion.categoryIndex}-${room.currentQuestion.questionIndex}`);
+      room.currentQuestion.scored = true;
       room.gameStatus = "answer_review";
     }
 
@@ -297,6 +346,7 @@ export class RoomManager {
 
   revealAnswer(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (!room.currentQuestion) throw new Error("No question is selected.");
     room.currentQuestion.answerRevealed = true;
     room.gameStatus = "answer_review";
@@ -306,7 +356,11 @@ export class RoomManager {
 
   reopenBuzzing(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (!room.currentQuestion) throw new Error("No question is selected.");
+    if (room.currentQuestion.answerRevealed) throw new Error("Buzzing cannot be reopened after the answer is revealed.");
+    if (room.currentQuestion.scored) throw new Error("This question has already been scored.");
+    if (!this.hasEligibleBuzzers(room)) throw new Error("No eligible players can buzz on this question.");
     room.currentBuzzer = null;
     room.gameStatus = "buzzing_open";
     room.updatedAt = now();
@@ -315,13 +369,15 @@ export class RoomManager {
 
   returnToBoard(socketId, roomCode) {
     const room = this.requireHost(socketId, roomCode);
-    if (room.currentQuestion) {
+    this.requireNotFinished(room);
+    if (room.currentQuestion?.scored || room.currentQuestion?.answerRevealed || room.currentQuestion?.attempted) {
       room.usedQuestions.add(`${room.currentQuestion.categoryIndex}-${room.currentQuestion.questionIndex}`);
     }
     room.currentQuestion = null;
     room.currentBuzzer = null;
     room.buzzHistory = [];
     room.disqualifiedPlayerIds = new Set();
+    room.eligiblePlayerIds = new Set();
     room.players.forEach((player) => {
       player.answerStatus = null;
     });
@@ -332,8 +388,10 @@ export class RoomManager {
 
   updateScore(socketId, roomCode, playerId, score) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     const player = room.players.get(playerId);
     if (!player) throw new Error("Player not found.");
+    if (typeof score === "string" && score.trim() === "") throw new Error("Score must be a number.");
     const nextScore = Number(score);
     if (!Number.isFinite(nextScore)) throw new Error("Score must be a number.");
     const delta = nextScore - player.score;
@@ -345,7 +403,20 @@ export class RoomManager {
 
   removePlayer(socketId, roomCode, playerId) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
+    const player = room.players.get(playerId);
+    if (!player) throw new Error("Player not found.");
+    if (player.socketId) this.socketRooms.delete(player.socketId);
     room.players.delete(playerId);
+    room.disqualifiedPlayerIds.delete(playerId);
+    room.eligiblePlayerIds.delete(playerId);
+    this.buzzRate.delete(playerId);
+    room.buzzHistory = room.buzzHistory.filter((buzz) => buzz.playerId !== playerId);
+    if (room.currentBuzzer?.playerId === playerId) {
+      room.currentBuzzer = null;
+      if (room.gameStatus === "answer_review" && !room.currentQuestion?.scored) room.gameStatus = "question_active";
+    }
+    if (room.gameStatus === "buzzing_open" && !this.hasEligibleBuzzers(room)) room.gameStatus = "question_active";
     room.updatedAt = now();
     return room;
   }
@@ -368,6 +439,8 @@ export class RoomManager {
     room.currentBuzzer = null;
     room.buzzHistory = [];
     room.disqualifiedPlayerIds = new Set();
+    room.eligiblePlayerIds = new Set();
+    room.attemptedQuestions = new Set();
     room.recentScoreChanges = [];
     room.players.forEach((player) => {
       player.score = 0;
@@ -379,6 +452,7 @@ export class RoomManager {
 
   updateSettings(socketId, roomCode, settings) {
     const room = this.requireHost(socketId, roomCode);
+    this.requireNotFinished(room);
     if (typeof settings?.deductOnWrong === "boolean") {
       room.settings.deductOnWrong = settings.deductOnWrong;
     }
@@ -400,7 +474,7 @@ export class RoomManager {
 
     if (binding.role === "player") {
       const player = room.players.get(binding.playerId);
-      if (player) {
+      if (player && player.socketId === socketId) {
         player.connected = false;
         player.socketId = null;
         player.lastSeen = now();
@@ -408,8 +482,35 @@ export class RoomManager {
     }
 
     this.socketRooms.delete(socketId);
+    if (room.gameStatus === "buzzing_open" && !this.hasEligibleBuzzers(room)) room.gameStatus = "question_active";
     room.updatedAt = now();
     return { room, binding };
+  }
+
+  cleanupExpiredRooms(timestamp = now()) {
+    const removed = [];
+
+    for (const [roomCode, room] of this.rooms) {
+      const connectedPlayers = [...room.players.values()].some((player) => player.connected);
+      const hasConnectedClient = room.host.connected || connectedPlayers;
+      const expired = timestamp - room.createdAt > this.roomTtlMs;
+      const emptyExpired = !hasConnectedClient && timestamp - room.updatedAt > this.emptyRoomTtlMs;
+
+      if (expired || emptyExpired) {
+        for (const playerId of room.players.keys()) this.buzzRate.delete(playerId);
+        this.rooms.delete(roomCode);
+        removed.push(roomCode);
+      }
+    }
+
+    if (removed.length) {
+      const removedRooms = new Set(removed);
+      for (const [socketId, binding] of this.socketRooms) {
+        if (removedRooms.has(binding.roomCode)) this.socketRooms.delete(socketId);
+      }
+    }
+
+    return removed;
   }
 
   addScoreChange(room, player, delta, reason) {
@@ -431,6 +532,20 @@ export class RoomManager {
     return room;
   }
 
+  requireNotFinished(room) {
+    if (room.gameStatus === "finished") throw new Error("This game has ended. Reset the game to continue.");
+  }
+
+  hasEligibleBuzzers(room) {
+    return [...room.players.values()].some(
+      (player) =>
+        player.connected &&
+        room.eligiblePlayerIds.has(player.id) &&
+        !room.disqualifiedPlayerIds.has(player.id) &&
+        !room.buzzHistory.some((buzz) => buzz.playerId === player.id)
+    );
+  }
+
   hostState(room) {
     return {
       roomCode: room.roomCode,
@@ -445,6 +560,7 @@ export class RoomManager {
       currentBuzzer: room.currentBuzzer,
       buzzHistory: room.buzzHistory,
       disqualifiedPlayerIds: [...room.disqualifiedPlayerIds],
+      eligiblePlayerIds: [...room.eligiblePlayerIds],
       recentScoreChanges: room.recentScoreChanges,
       updatedAt: room.updatedAt
     };
@@ -464,9 +580,34 @@ export class RoomManager {
       buzzed: room.buzzHistory.some((buzz) => buzz.playerId === playerId),
       canBuzz:
         room.gameStatus === "buzzing_open" &&
+        room.currentQuestion &&
+        !room.currentQuestion.answerRevealed &&
         !room.currentBuzzer &&
+        room.eligiblePlayerIds.has(playerId) &&
         !room.disqualifiedPlayerIds.has(playerId) &&
         !room.buzzHistory.some((buzz) => buzz.playerId === playerId),
+      recentScoreChanges: room.recentScoreChanges,
+      updatedAt: room.updatedAt
+    };
+  }
+
+  displayState(room) {
+    return {
+      roomCode: room.roomCode,
+      role: "display",
+      hostConnected: room.host.connected,
+      gameStatus: room.gameStatus,
+      allowJoining: room.allowJoining,
+      settings: room.settings,
+      players: rankPlayers([...room.players.values()].map(publicPlayer)),
+      board: sanitizeBoardForClient(room.board, room.usedQuestions),
+      currentQuestion: sanitizeCurrentQuestion(room.currentQuestion, "display"),
+      currentBuzzer: room.currentBuzzer
+        ? { playerId: room.currentBuzzer.playerId, name: room.currentBuzzer.name, avatar: room.currentBuzzer.avatar }
+        : null,
+      buzzHistory: room.buzzHistory,
+      disqualifiedPlayerIds: [...room.disqualifiedPlayerIds],
+      eligiblePlayerIds: [...room.eligiblePlayerIds],
       recentScoreChanges: room.recentScoreChanges,
       updatedAt: room.updatedAt
     };
@@ -477,7 +618,10 @@ export class RoomManager {
       host: room.host.socketId ? { socketId: room.host.socketId, state: this.hostState(room) } : null,
       players: [...room.players.values()]
         .filter((player) => player.socketId)
-        .map((player) => ({ socketId: player.socketId, state: this.playerState(room, player.id) }))
+        .map((player) => ({ socketId: player.socketId, state: this.playerState(room, player.id) })),
+      displays: [...this.socketRooms.entries()]
+        .filter(([, binding]) => binding.role === "display" && binding.roomCode === room.roomCode)
+        .map(([socketId]) => ({ socketId, state: this.displayState(room) }))
     };
   }
 }

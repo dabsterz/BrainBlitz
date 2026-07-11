@@ -3,13 +3,15 @@ import { useState } from "react";
 
 export default function Leaderboard({ players, scoreChanges = [], mode = "host", onScore }) {
   const [editing, setEditing] = useState(null);
+  const panelClass = mode === "host" ? "leaderboard-panel" : mode === "display" ? "display-leaderboard" : "phone-leaderboard";
+  const titleClass = mode === "display" ? "text-4xl font-black" : mode === "host" ? "text-3xl font-black" : "text-2xl font-black";
 
   return (
-    <section className={mode === "host" ? "leaderboard-panel" : "phone-leaderboard"}>
+    <section className={panelClass}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-black uppercase tracking-wide text-pop">Leaderboard</p>
-          <h2 className={mode === "host" ? "text-3xl font-black" : "text-2xl font-black"}>Scores</h2>
+          <h2 className={titleClass}>Scores</h2>
         </div>
         <Trophy className="text-pop" size={30} />
       </div>
@@ -37,10 +39,11 @@ export default function Leaderboard({ players, scoreChanges = [], mode = "host",
                       <Minus size={16} />
                     </button>
                     <input
+                      aria-label={`Score for ${player.name}`}
                       value={editing?.id === player.id ? editing.value : player.score}
                       onChange={(event) => setEditing({ id: player.id, value: event.target.value })}
                       onBlur={() => {
-                        if (editing?.id === player.id) onScore(player.id, editing.value);
+                        if (editing?.id === player.id && String(editing.value).trim() !== "") onScore(player.id, editing.value);
                         setEditing(null);
                       }}
                       onKeyDown={(event) => {

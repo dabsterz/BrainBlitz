@@ -48,7 +48,7 @@
   }
 
   .primary-button {
-    @apply inline-flex items-center gap-2 rounded-2xl bg-coral px-6 py-4 font-black text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-[#ff5848] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+    @apply inline-flex items-center gap-2 rounded-2xl bg-plum px-6 py-4 font-black text-white shadow-lift transition hover:-translate-y-0.5 hover:bg-[#5638d6] focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-pop disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
   }
 
   .secondary-button {
@@ -61,7 +61,7 @@
 
   .small-button,
   .small-danger {
-    @apply rounded-xl px-4 py-2 text-sm font-black transition;
+    @apply rounded-xl px-4 py-2 text-sm font-black transition focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-pop;
   }
 
   .small-button {
@@ -69,7 +69,7 @@
   }
 
   .small-danger {
-    @apply bg-coral text-white hover:bg-[#ff5848];
+    @apply bg-[#b91c1c] text-white hover:bg-[#991b1b];
   }
 
   .stage-panel {
@@ -133,7 +133,7 @@
   }
 
   .avatar-button {
-    @apply grid aspect-square place-items-center rounded-2xl border-2 border-night/10 bg-white text-2xl transition hover:border-pool;
+    @apply grid aspect-square min-h-[52px] place-items-center rounded-2xl border-2 border-night/10 bg-white text-2xl transition hover:border-pool focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-plum;
   }
 
   .avatar-button.selected {
@@ -158,7 +158,7 @@
   }
 
   .icon-danger {
-    @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-coral text-white transition hover:bg-[#ff5848];
+    @apply grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#b91c1c] text-white transition hover:bg-[#991b1b] focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-pop;
   }
 
   .board-grid {
@@ -180,6 +180,15 @@
   .question-tile {
     @apply relative grid min-h-[82px] place-items-center overflow-hidden rounded-2xl bg-pop text-4xl font-black text-ink shadow transition hover:-translate-y-1 hover:bg-mint disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/30 disabled:hover:translate-y-0;
     transform-style: preserve-3d;
+  }
+
+  .question-tile.read-only {
+    @apply cursor-default hover:translate-y-0;
+  }
+
+  .question-tile.used,
+  .question-tile.read-only.used {
+    @apply bg-white/10 text-white/30;
   }
 
   .question-tile::before {
@@ -212,6 +221,14 @@
     @apply grid flex-1 gap-5 lg:grid-cols-[1fr_360px];
   }
 
+  .question-layout.read-only {
+    @apply lg:grid-cols-1;
+  }
+
+  .question-layout.read-only .question-main {
+    min-height: min(680px, calc(100vh - 150px));
+  }
+
   .question-main {
     @apply flex min-h-[620px] flex-col;
   }
@@ -229,7 +246,7 @@
   }
 
   .buzzer-banner {
-    @apply mt-4 flex items-center gap-4 rounded-2xl bg-coral p-4 text-white;
+    @apply mt-4 flex items-center gap-4 rounded-2xl bg-plum p-4 text-white;
     animation: spotlight-pop 520ms cubic-bezier(0.16, 1.35, 0.32, 1);
   }
 
@@ -254,7 +271,7 @@
   }
 
   .control-button {
-    @apply inline-flex min-h-[62px] items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-center font-black text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-35;
+    @apply inline-flex min-h-[62px] items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-center font-black text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-pop disabled:cursor-not-allowed disabled:opacity-35;
   }
 
   .control-button.open {
@@ -270,7 +287,7 @@
   }
 
   .control-button.wrong {
-    @apply bg-coral text-white hover:bg-[#ff5848];
+    @apply bg-[#b91c1c] text-white hover:bg-[#991b1b];
   }
 
   .status-badge {
@@ -314,6 +331,18 @@
     @apply sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto;
   }
 
+  .display-leaderboard {
+    @apply rounded-3xl border border-white/15 bg-white/10 p-5 text-white shadow-lift backdrop-blur;
+  }
+
+  .display-leaderboard .leader-row {
+    @apply p-4;
+  }
+
+  .display-leaderboard .score-display {
+    @apply text-2xl;
+  }
+
   .phone-leaderboard {
     @apply border-night/10 bg-night text-white;
   }
@@ -340,19 +369,19 @@
   }
 
   .score-pop.negative {
-    @apply bg-coral text-white;
+    @apply bg-[#b91c1c] text-white;
   }
 
   .score-edit {
-    @apply grid grid-cols-[34px_76px_34px] items-center gap-1 rounded-xl bg-white p-1;
+    @apply grid grid-cols-[44px_84px_44px] items-center gap-1 rounded-xl bg-white p-1;
   }
 
   .score-edit button {
-    @apply grid h-8 place-items-center rounded-lg bg-night text-white transition hover:bg-plum;
+    @apply grid h-10 place-items-center rounded-lg bg-night text-white transition hover:bg-plum focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-pop;
   }
 
   .score-edit input {
-    @apply h-8 w-full rounded-lg bg-white text-center text-sm font-black text-ink outline-none;
+    @apply h-10 w-full rounded-lg bg-white text-center text-sm font-black text-ink outline-none focus-visible:ring-4 focus-visible:ring-plum/40;
   }
 
   .phone-top {
@@ -364,6 +393,7 @@
   }
 
   .phone-alert,
+  .phone-notice,
   .phone-status {
     @apply flex items-center justify-center gap-2 rounded-2xl bg-white/85 p-4 text-center font-black shadow-sm;
   }
@@ -374,6 +404,10 @@
 
   .phone-status {
     @apply text-pool;
+  }
+
+  .phone-notice {
+    @apply bg-pop/85 text-ink;
   }
 
   .phone-status.muted {
@@ -389,13 +423,17 @@
   }
 
   .buzz-button.active {
-    @apply bg-coral text-white;
+    @apply bg-plum text-white;
     animation: phone-buzz-ready 820ms ease-in-out infinite;
   }
 
   .buzz-button.buzzed {
     @apply bg-mint text-ink;
     animation: spotlight-pop 420ms cubic-bezier(0.16, 1.35, 0.32, 1);
+  }
+
+  .buzz-button.incorrect {
+    @apply bg-[#b91c1c] text-white;
   }
 
   .buzz-button.too-late {
@@ -491,7 +529,7 @@
   }
 
   .stage-effect-buzz .stage-effect-card {
-    @apply bg-coral;
+    @apply bg-plum;
   }
 
   .stage-effect-buzz .stage-effect-card h2 {
@@ -508,7 +546,7 @@
   }
 
   .stage-effect-incorrect .stage-effect-card {
-    @apply bg-coral;
+    @apply bg-[#b91c1c];
   }
 
   .confetti-bit,
@@ -540,6 +578,130 @@
   .winner-confetti {
     animation-duration: 3.1s;
     animation-iteration-count: infinite;
+  }
+
+  .display-screen {
+    @apply min-h-screen overflow-hidden;
+  }
+
+  .display-shell {
+    @apply mx-auto flex min-h-screen max-w-[1920px] flex-col gap-4 p-5;
+  }
+
+  .display-header {
+    @apply flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-white/15 bg-white/10 px-5 py-4 shadow-lift backdrop-blur;
+  }
+
+  .display-header h1 {
+    @apply truncate text-4xl font-black leading-none;
+  }
+
+  .display-header p {
+    @apply mt-1 text-lg font-black text-white/70;
+  }
+
+  .display-brand-icon {
+    @apply grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-pop text-ink;
+  }
+
+  .display-status-row {
+    @apply flex flex-wrap items-center justify-end gap-3;
+  }
+
+  .display-status,
+  .display-alert,
+  .display-player-count {
+    @apply inline-flex min-h-[48px] items-center gap-2 rounded-2xl px-4 py-2 text-xl font-black;
+  }
+
+  .display-status {
+    @apply bg-white text-ink;
+  }
+
+  .display-status.buzzing_open {
+    @apply bg-mint text-ink;
+    animation: buzz-pulse 850ms ease-in-out infinite;
+  }
+
+  .display-status.answer_review {
+    @apply bg-pop text-ink;
+  }
+
+  .display-status.finished {
+    @apply bg-plum text-white;
+  }
+
+  .display-alert {
+    @apply bg-[#b91c1c] text-white;
+  }
+
+  .display-player-count {
+    @apply bg-ink text-white;
+  }
+
+  .display-player-count.large {
+    @apply min-h-[58px] text-3xl;
+  }
+
+  .display-game-grid {
+    @apply grid min-h-0 flex-1 gap-5 xl:grid-cols-[1fr_380px];
+  }
+
+  .display-game-grid > section > .hero-card,
+  .display-game-grid > section > .question-layout {
+    @apply flex-1;
+  }
+
+  .display-lobby {
+    @apply grid flex-1 gap-5 xl:grid-cols-[460px_1fr];
+  }
+
+  .display-join-card {
+    @apply text-center;
+  }
+
+  .display-room-code {
+    @apply mt-3 rounded-2xl bg-ink px-5 py-4 text-6xl font-black tracking-[0.22em] text-pop;
+  }
+
+  .display-player-board h2 {
+    @apply text-5xl font-black;
+  }
+
+  .display-player-grid {
+    @apply grid gap-4 sm:grid-cols-2 xl:grid-cols-3;
+  }
+
+  .display-player-tile {
+    @apply flex min-w-0 items-center gap-4 rounded-2xl bg-white/10 p-4;
+  }
+
+  .display-player-tile p {
+    @apply truncate text-2xl font-black;
+  }
+
+  .display-player-tile span:not(.avatar-lg) {
+    @apply text-sm font-black uppercase tracking-wide;
+  }
+
+  .display-empty-players {
+    @apply grid min-h-[420px] place-items-center rounded-3xl border border-dashed border-white/20 text-center text-3xl font-black text-white/60;
+  }
+
+  .display-final {
+    @apply grid flex-1 gap-5 xl:grid-cols-[1fr_420px];
+  }
+
+  .display-final-main {
+    @apply grid min-h-[650px] place-items-center overflow-hidden text-center;
+  }
+
+  .display-final-main h2 {
+    @apply mt-2 text-6xl font-black leading-tight;
+  }
+
+  .display-final-main p:last-child {
+    @apply mt-3 text-3xl font-bold text-white/75;
   }
 }
 
@@ -603,11 +765,11 @@
   0%,
   100% {
     transform: scale(1);
-    box-shadow: 0 18px 40px rgba(255, 111, 97, 0.3);
+    box-shadow: 0 18px 40px rgba(109, 74, 255, 0.3);
   }
   50% {
     transform: scale(1.025);
-    box-shadow: 0 22px 54px rgba(255, 111, 97, 0.55);
+    box-shadow: 0 22px 54px rgba(109, 74, 255, 0.55);
   }
 }
 
@@ -738,5 +900,16 @@
   .question-text {
     min-height: 260px;
     font-size: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
-import { Brain, CircleAlert, Gamepad2, Plus, ScanLine, Smartphone } from "lucide-react";
+import { Brain, CircleAlert, ExternalLink, Gamepad2, Plus, ScanLine, Smartphone } from "lucide-react";
 import { APP_CONFIG } from "./config.js";
 import { socket } from "./socket.js";
 import { AVATARS } from "./utils/validation.js";
@@ -11,9 +11,47 @@ import PlayerController from "./components/PlayerController.jsx";
 import Leaderboard from "./components/Leaderboard.jsx";
 import StageEffects from "./components/StageEffects.jsx";
 import Mascot from "./components/Mascot.jsx";
+import DisplayView from "./components/DisplayView.jsx";
 
 function socketAck(event, payload) {
   return new Promise((resolve) => socket.emit(event, payload, resolve));
+}
+
+const AVATAR_LABELS = {
+  "⚡": "lightning",
+  "🎯": "target",
+  "🚀": "rocket",
+  "🌟": "star",
+  "🎲": "dice",
+  "🧠": "brain",
+  "🏆": "trophy",
+  "🔥": "fire",
+  "🍿": "popcorn",
+  "🎵": "music",
+  "🌈": "rainbow",
+  "🕹️": "joystick"
+};
+
+const CONFIRM_MESSAGES = {
+  end_game: "End the game now? Players will see final results.",
+  reset_game: "Reset the game? This clears scores, used questions, and current progress.",
+  remove_player: "Remove this player from the room?",
+  reveal_answer: "Reveal the answer now? Players will see it and buzzing cannot reopen for this question."
+};
+
+function friendlyBuzzError(message) {
+  const text = message || "That buzz did not go through.";
+  if (text.includes("joined after")) return "You joined this question late. Wait for the next one.";
+  if (text.includes("Buzzing is closed")) return "Buzzing is closed. Watch the host screen.";
+  if (text.includes("already buzzed")) return "You already buzzed on this question.";
+  if (text.includes("cannot buzz again")) return "You already tried this question. Wait for the next one.";
+  if (text.includes("Player not found")) return "Your phone reconnected. Rejoining the room...";
+  return text;
+}
+
+function openDisplayWindow(roomCode) {
+  const displayWindow = window.open(`/display/${roomCode}`, "brainblitz-display", "popup=yes,width=1280,height=720");
+  displayWindow?.focus();
 }
 
 function LandingPage() {
@@ -32,6 +70,7 @@ function LandingPage() {
     }
 
     sessionStorage.setItem(`brainblitz_host_${result.roomCode}`, result.hostToken);
+    localStorage.setItem(`brainblitz_host_${result.roomCode}`, result.hostToken);
     navigate(`/host/${result.roomCode}`);
   }
 
@@ -104,33 +143,43 @@ function HostPage() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    const hostToken = sessionStorage.getItem(`brainblitz_host_${roomCode}`);
+    const hostToken = sessionStorage.getItem(`brainblitz_host_${roomCode}`) || localStorage.getItem(`brainblitz_host_${roomCode}`);
     if (!hostToken) {
       setError("This browser does not have the host token for that room. Create a new game from the landing page.");
       return;
     }
 
-    socket.emit("host_reconnect", { roomCode, hostToken }, (result) => {
-      if (!result?.ok) {
-        setError(result?.error || "Could not reconnect as host.");
-        return;
-      }
-      setState(result.state);
-    });
+    function reconnectHost() {
+      socket.emit("host_reconnect", { roomCode, hostToken }, (result) => {
+        if (!result?.ok) {
+          setError(result?.error || "Could not reconnect as host.");
+          return;
+        }
+        setError("");
+        setState(result.state);
+      });
+    }
 
     const onSync = (nextState) => {
       if (nextState.roomCode === roomCode && nextState.role === "host") setState(nextState);
     };
     const onError = (message) => setNotice(message);
+    if (socket.connected) reconnectHost();
+    socket.on("connect", reconnectHost);
     socket.on("sync_state", onSync);
     socket.on("action_error", onError);
     return () => {
+      socket.off("connect", reconnectHost);
       socket.off("sync_state", onSync);
       socket.off("action_error", onError);
     };
   }, [roomCode]);
 
-  const hostAction = (event, payload = {}) => socket.emit(event, { roomCode, ...payload });
+  const hostAction = (event, payload = {}) => {
+    const message = CONFIRM_MESSAGES[event];
+    if (message && !window.confirm(message)) return;
+    socket.emit(event, { roomCode, ...payload });
+  };
 
   if (error) return <MessageScreen title="Host access needed" message={error} action={<Link className="primary-button" to="/">Create Game</Link>} />;
   if (!state) return <LoadingScreen text="Connecting host screen..." />;
@@ -139,7 +188,7 @@ function HostPage() {
     state.gameStatus === "lobby" ? (
       <HostLobby state={state} onAction={hostAction} />
     ) : state.currentQuestion ? (
-      <QuestionView state={state} onAction={hostAction} />
+      <QuestionView state={state} onAction={hostAction} privateAnswer />
     ) : (
       <GameBoard state={state} onAction={hostAction} />
     );
@@ -151,6 +200,43 @@ function HostPage() {
       </HostShell>
     </main>
   );
+}
+
+function DisplayPage() {
+  const { roomCode } = useParams();
+  const [state, setState] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    function reconnectDisplay() {
+      socket.emit("display_reconnect", { roomCode }, (result) => {
+        if (!result?.ok) {
+          setError(result?.error || "Could not connect the TV display.");
+          return;
+        }
+
+        setError("");
+        setState(result.state);
+      });
+    }
+
+    const onSync = (nextState) => {
+      if (nextState.roomCode === roomCode && nextState.role === "display") setState(nextState);
+    };
+
+    if (socket.connected) reconnectDisplay();
+    socket.on("connect", reconnectDisplay);
+    socket.on("sync_state", onSync);
+    return () => {
+      socket.off("connect", reconnectDisplay);
+      socket.off("sync_state", onSync);
+    };
+  }, [roomCode]);
+
+  if (error) return <MessageScreen title="Display unavailable" message={error} action={<Link className="primary-button" to="/">Create Game</Link>} />;
+  if (!state) return <LoadingScreen text="Connecting TV display..." />;
+
+  return <DisplayView state={state} />;
 }
 
 function HostShell({ state, children, onAction, notice, setNotice }) {
@@ -173,23 +259,25 @@ function HostShell({ state, children, onAction, notice, setNotice }) {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="toggle-pill">
-              <input
-                type="checkbox"
-                checked={state.settings.deductOnWrong}
-                onChange={(event) => onAction("update_settings", { settings: { deductOnWrong: event.target.checked } })}
-              />
-              Deduct wrong answers
-            </label>
+            <button className="secondary-dark" onClick={() => openDisplayWindow(state.roomCode)}>
+              <ExternalLink size={20} />
+              TV Display
+            </button>
             {state.gameStatus !== "finished" ? (
-              <button className="small-danger" onClick={() => onAction("end_game")}>
-                End Game
-              </button>
-            ) : (
-              <button className="small-button" onClick={() => onAction("reset_game")}>
-                Reset Game
-              </button>
-            )}
+              <>
+                <label className="toggle-pill">
+                  <input
+                    type="checkbox"
+                    checked={state.settings.deductOnWrong}
+                    onChange={(event) => onAction("update_settings", { settings: { deductOnWrong: event.target.checked } })}
+                  />
+                  Deduct wrong answers
+                </label>
+                <button className="small-danger" onClick={() => onAction("end_game")}>
+                  End Game
+                </button>
+              </>
+            ) : null}
           </div>
         </header>
 
@@ -249,6 +337,7 @@ function PlayerJoinPage() {
     }
 
     localStorage.setItem(`brainblitz_player_${result.roomCode}`, result.playerId);
+    localStorage.setItem(`brainblitz_player_token_${result.roomCode}`, result.playerToken);
     localStorage.setItem(`brainblitz_player_name_${result.roomCode}`, result.playerName);
     localStorage.setItem(`brainblitz_player_avatar_${result.roomCode}`, avatar);
     localStorage.setItem("brainblitz_last_name", result.playerName);
@@ -279,9 +368,17 @@ function PlayerJoinPage() {
           <input id="name" className="text-field" value={name} onChange={(event) => setName(event.target.value)} placeholder="Aunt Maya" maxLength={24} />
 
           <p className="field-label mt-5">Avatar</p>
-          <div className="grid grid-cols-6 gap-2">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
             {AVATARS.map((item) => (
-              <button key={item} type="button" className={`avatar-button ${avatar === item ? "selected" : ""}`} onClick={() => setAvatar(item)}>
+              <button
+                key={item}
+                type="button"
+                className={`avatar-button ${avatar === item ? "selected" : ""}`}
+                aria-label={`${AVATAR_LABELS[item] || "avatar"} avatar`}
+                aria-pressed={avatar === item}
+                title={`${AVATAR_LABELS[item] || "avatar"} avatar`}
+                onClick={() => setAvatar(item)}
+              >
                 {item}
               </button>
             ))}
@@ -303,40 +400,91 @@ function PlayerPage() {
   const { roomCode } = useParams();
   const [state, setState] = useState(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const playerId = useMemo(() => localStorage.getItem(`brainblitz_player_${roomCode}`), [roomCode]);
+  const playerToken = useMemo(() => localStorage.getItem(`brainblitz_player_token_${roomCode}`), [roomCode]);
 
   useEffect(() => {
-    if (!playerId) {
+    if (!playerId || !playerToken) {
       setError("Join the room before opening the player controller.");
       return;
     }
 
     const name = localStorage.getItem(`brainblitz_player_name_${roomCode}`) || localStorage.getItem("brainblitz_last_name") || "Player";
     const avatar = localStorage.getItem(`brainblitz_player_avatar_${roomCode}`) || AVATARS[0];
-    socket.emit("player_reconnect", { roomCode, playerId, name, avatar }, (result) => {
+
+    function clearStoredPlayer() {
+      localStorage.removeItem(`brainblitz_player_${roomCode}`);
+      localStorage.removeItem(`brainblitz_player_token_${roomCode}`);
+    }
+
+    function reconnectPlayer() {
+      socket.emit("player_reconnect", { roomCode, playerId, playerToken, name, avatar }, (result) => {
       if (!result?.ok) {
+          clearStoredPlayer();
         setError(result?.error || "Could not reconnect to this game.");
         return;
       }
+      localStorage.setItem(`brainblitz_player_${result.roomCode}`, result.playerId);
+      localStorage.setItem(`brainblitz_player_token_${result.roomCode}`, result.playerToken);
+      localStorage.setItem(`brainblitz_player_name_${result.roomCode}`, result.playerName);
+        setError("");
+        setNotice("");
       setState(result.state);
     });
+    }
 
     const onSync = (nextState) => {
-      if (nextState.roomCode === roomCode && nextState.role === "player") setState(nextState);
+      if (nextState.roomCode === roomCode && nextState.role === "player") {
+        setState(nextState);
+        if (nextState.canBuzz) setNotice("");
+      }
     };
-    const onError = (message) => setError(message);
+    const onError = (message) => setNotice(friendlyBuzzError(message));
+    const onRemoved = () => {
+      clearStoredPlayer();
+      setError("You were removed from this room. Join again to keep playing.");
+    };
+    if (socket.connected) reconnectPlayer();
+    socket.on("connect", reconnectPlayer);
     socket.on("sync_state", onSync);
     socket.on("action_error", onError);
+    socket.on("removed_from_room", onRemoved);
     return () => {
+      socket.off("connect", reconnectPlayer);
       socket.off("sync_state", onSync);
       socket.off("action_error", onError);
+      socket.off("removed_from_room", onRemoved);
     };
-  }, [roomCode, playerId]);
+  }, [roomCode, playerId, playerToken]);
 
   if (error) return <MessageScreen title="Controller unavailable" message={error} action={<Link className="primary-button" to={`/join/${roomCode}`}>Join Room</Link>} />;
   if (!state) return <LoadingScreen text="Connecting controller..." />;
 
-  return <PlayerController state={state} onBuzz={() => socket.emit("player_buzz", { roomCode, playerId })} />;
+  return (
+    <PlayerController
+      state={state}
+      notice={notice}
+      onBuzz={() =>
+        socket.emit("player_buzz", { roomCode, playerId: state.player?.id }, (result) => {
+          if (!result?.ok) {
+            setNotice(friendlyBuzzError(result?.error));
+            if (result?.error?.includes("Player not found") && socket.connected) {
+              socket.emit("player_reconnect", {
+                roomCode,
+                playerId,
+                playerToken,
+                name: localStorage.getItem(`brainblitz_player_name_${roomCode}`) || localStorage.getItem("brainblitz_last_name") || "Player",
+                avatar: localStorage.getItem(`brainblitz_player_avatar_${roomCode}`) || AVATARS[0]
+              });
+            }
+            return;
+          }
+          setNotice("");
+        })
+      }
+    />
+  );
 }
 
 function LoadingScreen({ text }) {
@@ -368,6 +516,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/host/:roomCode" element={<HostPage />} />
+      <Route path="/display/:roomCode" element={<DisplayPage />} />
       <Route path="/join" element={<PlayerJoinPage />} />
       <Route path="/join/:roomCode" element={<PlayerJoinPage />} />
       <Route path="/play/:roomCode" element={<PlayerPage />} />

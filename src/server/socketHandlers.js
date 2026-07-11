@@ -16,6 +16,10 @@ function emitRoomState(io, room) {
   states.players.forEach(({ socketId, state }) => {
     io.to(socketId).emit("sync_state", state);
   });
+
+  states.displays.forEach(({ socketId, state }) => {
+    io.to(socketId).emit("sync_state", state);
+  });
 }
 
 function emitActionError(socket, message) {
@@ -56,6 +60,18 @@ export function registerSocketHandlers(io) {
       emitRoomState(io, result.room);
     });
 
+    socket.on("display_reconnect", ({ roomCode } = {}, ack) => {
+      const result = roomManager.bindDisplay(socket.id, roomCode);
+      if (!result.ok) {
+        ack?.(result);
+        return;
+      }
+
+      socket.join(roomChannel(result.room.roomCode));
+      ack?.({ ok: true, state: roomManager.displayState(result.room) });
+      emitRoomState(io, result.room);
+    });
+
     socket.on("join_room", (payload = {}, ack) => {
       const result = roomManager.joinRoom({ socketId: socket.id, ...payload });
       if (!result.ok) {
@@ -74,6 +90,7 @@ export function registerSocketHandlers(io) {
         ok: true,
         roomCode: result.room.roomCode,
         playerId: result.player.id,
+        playerToken: result.player.token,
         playerName: result.player.name,
         state: roomManager.playerState(result.room, result.player.id)
       });
@@ -81,14 +98,26 @@ export function registerSocketHandlers(io) {
     });
 
     socket.on("player_reconnect", (payload = {}, ack) => {
-      const result = roomManager.joinRoom({ socketId: socket.id, ...payload, previousPlayerId: payload.playerId });
+      const result = roomManager.joinRoom({
+        socketId: socket.id,
+        ...payload,
+        previousPlayerId: payload.playerId,
+        playerToken: payload.playerToken
+      });
       if (!result.ok) {
         ack?.(result);
         return;
       }
       socket.join(roomChannel(result.room.roomCode));
       socket.emit("reconnect", { role: "player" });
-      ack?.({ ok: true, state: roomManager.playerState(result.room, result.player.id) });
+      ack?.({
+        ok: true,
+        roomCode: result.room.roomCode,
+        playerId: result.player.id,
+        playerToken: result.player.token,
+        playerName: result.player.name,
+        state: roomManager.playerState(result.room, result.player.id)
+      });
       emitRoomState(io, result.room);
     });
 
@@ -104,7 +133,13 @@ export function registerSocketHandlers(io) {
         return;
       }
 
-      if (playerId && room.players.has(playerId)) {
+      const binding = roomManager.socketRooms.get(socket.id);
+      if (binding?.roomCode === room.roomCode && binding?.role === "display") {
+        ack?.({ ok: true, state: roomManager.displayState(room) });
+        return;
+      }
+
+      if (playerId && binding?.roomCode === room.roomCode && binding?.role === "player" && binding.playerId === playerId && room.players.has(playerId)) {
         ack?.({ ok: true, state: roomManager.playerState(room, playerId) });
         return;
       }
@@ -196,7 +231,14 @@ export function registerSocketHandlers(io) {
         socket,
         payload,
         ({ roomCode, playerId }) => {
+          const existingRoom = roomManager.getRoom(roomCode);
+          const removedSocketId = existingRoom?.players.get(playerId)?.socketId;
           const room = roomManager.removePlayer(socket.id, roomCode, playerId);
+          const removedSocket = removedSocketId ? io.sockets.sockets.get(removedSocketId) : null;
+          if (removedSocket) {
+            removedSocket.emit("removed_from_room", { roomCode: room.roomCode });
+            removedSocket.leave(roomChannel(room.roomCode));
+          }
           io.to(roomChannel(room.roomCode)).emit("player_left", playerId);
           return room;
         },
@@ -208,7 +250,8 @@ export function registerSocketHandlers(io) {
       const result = roomManager.handleDisconnect(socket.id);
       if (!result) return;
 
-      const eventName = result.binding.role === "host" ? "host_disconnect" : "player_disconnect";
+      const eventName =
+        result.binding.role === "host" ? "host_disconnect" : result.binding.role === "player" ? "player_disconnect" : "display_disconnect";
       io.to(roomChannel(result.room.roomCode)).emit(eventName, result.binding);
       emitRoomState(io, result.room);
     });

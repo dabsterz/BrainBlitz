@@ -2,16 +2,20 @@ import { Brain, Trophy, WifiOff, Zap } from "lucide-react";
 import { useEffect, useRef } from "react";
 import Leaderboard from "./Leaderboard.jsx";
 
-export default function PlayerController({ state, onBuzz }) {
+export default function PlayerController({ state, notice, onBuzz }) {
   const previousCanBuzz = useRef(state.canBuzz);
   const player = state.player;
   const question = state.currentQuestion;
   const someoneElseBuzzed = state.currentBuzzer && state.currentBuzzer.playerId !== player?.id;
-  const youBuzzed = state.currentBuzzer?.playerId === player?.id || (state.buzzed && !someoneElseBuzzed);
+  const answerIncorrect = player?.answerStatus === "incorrect";
+  const youBuzzed = !answerIncorrect && (state.currentBuzzer?.playerId === player?.id || (state.buzzed && !someoneElseBuzzed));
+  const waitingForNextQuestion =
+    state.gameStatus === "buzzing_open" && question && !state.canBuzz && !state.currentBuzzer && !state.buzzed && !player?.answerStatus;
   const disabled = !state.canBuzz;
 
   let buttonText = "Buzzing Closed";
   if (state.canBuzz) buttonText = "Buzz In";
+  if (waitingForNextQuestion) buttonText = "Next Question";
   if (youBuzzed) buttonText = "You buzzed!";
   if (someoneElseBuzzed) buttonText = "Someone else buzzed first";
   if (player?.answerStatus === "incorrect") buttonText = "Marked Incorrect";
@@ -50,6 +54,12 @@ export default function PlayerController({ state, onBuzz }) {
           </div>
         ) : null}
 
+        {notice ? (
+          <div className="phone-notice" role="status" aria-live="polite">
+            {notice}
+          </div>
+        ) : null}
+
         <section className="phone-question">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-black uppercase tracking-wide text-pool">Current question</p>
@@ -71,18 +81,24 @@ export default function PlayerController({ state, onBuzz }) {
           )}
         </section>
 
-        <button className={`buzz-button ${state.canBuzz ? "active" : ""} ${youBuzzed ? "buzzed" : ""} ${someoneElseBuzzed ? "too-late" : ""}`} disabled={disabled} onClick={handleBuzz}>
+        <button className={`buzz-button ${state.canBuzz ? "active" : ""} ${youBuzzed ? "buzzed" : ""} ${answerIncorrect ? "incorrect" : ""} ${someoneElseBuzzed ? "too-late" : ""}`} disabled={disabled} onClick={handleBuzz}>
           <Zap size={44} />
           <span>{buttonText}</span>
         </button>
 
         {state.currentBuzzer ? (
-          <div className="phone-status">
+          <div className="phone-status" role="status" aria-live="polite">
             <Trophy size={22} />
             {state.currentBuzzer.playerId === player?.id ? "You are answering now." : `${state.currentBuzzer.name} is answering.`}
           </div>
         ) : (
-          <div className="phone-status muted">{state.gameStatus === "buzzing_open" ? "Tap fast when you know it." : "Get ready. The host controls the buzzer."}</div>
+          <div className="phone-status muted" role="status" aria-live="polite">
+            {waitingForNextQuestion
+              ? "You joined this question late. Watch this one."
+              : state.gameStatus === "buzzing_open"
+                ? "Tap fast when you know it."
+                : "Get ready. The host controls the buzzer."}
+          </div>
         )}
 
         <Leaderboard players={state.players} scoreChanges={state.recentScoreChanges} mode="player" />
